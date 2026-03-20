@@ -440,6 +440,24 @@ textarea:focus{border-color:rgba(85,102,255,.35)!important;box-shadow:0 0 0 3px 
 
 <script>
 'use strict';
+var NEWS_KEY = '3d49f6e6cd614e4e811a51c74a0e4f10';
+var FINN_KEY = 'd6ukcmhr01qig544stigd6ukcmhr01qig544stj0';
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  var parts = d.split('-');
+  var months = ['janvier','fevrier','mars','avril','mai','juin','juillet','aout','septembre','octobre','novembre','decembre'];
+  return parseInt(parts[2]) + ' ' + months[parseInt(parts[1])-1] + ' ' + parts[0];
+}
 const KEY = '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';
 const ASSETS = ['BTC/USD','ETH/USD','SOL/USD','AAPL','TSLA','NVDA','MSFT','EUR/USD','GBP/USD','XAU/USD','SPX500','NDX100'];
 const IVS = ['1m','5m','15m','1H','4H','1D','1W'];
@@ -918,139 +936,164 @@ function setTab(tab) {
   }
 }
 
-// ── NEWS ──────────────────────────────────────────────
+// ── NEWS (NewsAPI) ────────────────────────────────────
 function loadNews() {
   var feed = document.getElementById('news-feed');
   var asset = A.asset;
   document.getElementById('news-empty').style.display = 'none';
-  feed.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:80px;gap:10px;color:#444"><span class="sp"></span><span style="font-size:13px">Chargement...</span></div>';
+  feed.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:80px;gap:10px;color:#444"><span class="sp"></span><span style="font-size:13px">Chargement des actualites...</span></div>';
   var btn = document.getElementById('news-refresh');
   btn.innerHTML = '<span class="sp"></span>';
   btn.disabled = true;
 
-  var sysP = 'Analyste financier. Genere 5 actualites pour cet actif. JSON strict sans markdown: {"news":[{"title":"...","summary":"...","impact":"positive|negative|neutral","source":"...","date":"..."}]}';
-  var usrP = 'Actualites recentes pour ' + asset + '. Date: ' + new Date().toLocaleDateString('fr-FR') + '.';
+  // Build search query from asset name
+  var q = asset.replace('/', ' ').replace('USD','').replace('EUR','').trim();
+  if (asset === 'SPX500' || asset === 'NDX100') q = 'S&P 500 nasdaq';
+  if (asset === 'XAU/USD') q = 'gold price';
+  if (asset === 'WTI') q = 'oil price crude';
 
-  fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + KEY},
-    body: JSON.stringify({
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      max_tokens: 1000, temperature: 0.4,
-      messages: [{role: 'system', content: sysP},{role: 'user', content: usrP}]
-    })
-  }).then(function(r){return r.json();}).then(function(data){
-    var raw = (data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
-    raw = raw.replace(/```[a-z]*\n?|```/g,'').trim();
-    var p = null; try{p=JSON.parse(raw);}catch(e){}
-    btn.innerHTML = 'Actualiser'; btn.disabled = false;
-    if (!p||!p.news||!p.news.length){feed.innerHTML='<div style="text-align:center;color:#444;padding:40px">Impossible de charger.</div>';return;}
+  var url = 'https://newsapi.org/v2/everything?q=' + encodeURIComponent(q) +
+    '&language=fr&sortBy=publishedAt&pageSize=10&apiKey=' + NEWS_KEY;
+
+  // Try French first, fallback to English
+  fetch(url).then(function(r){return r.json();}).then(function(data){
+    if (!data.articles || !data.articles.length) {
+      // fallback English
+      var url2 = 'https://newsapi.org/v2/everything?q=' + encodeURIComponent(q) +
+        '&language=en&sortBy=publishedAt&pageSize=10&apiKey=' + NEWS_KEY;
+      return fetch(url2).then(function(r2){return r2.json();});
+    }
+    return data;
+  }).then(function(data){
+    btn.innerHTML = '⟳ Actualiser'; btn.disabled = false;
+    if (!data.articles || !data.articles.length) {
+      feed.innerHTML = '<div style="text-align:center;color:#444;padding:40px;font-size:13px">Aucune actualite trouvee pour ' + escHtml(asset) + '.</div>';
+      return;
+    }
     feed.innerHTML = '';
-    p.news.forEach(function(n){
-      var ic = n.impact==='positive'?'pos':n.impact==='negative'?'neg':'neu';
-      var il = n.impact==='positive'?'Positif':n.impact==='negative'?'Negatif':'Neutre';
-      var bc = n.impact==='positive'?'rgba(0,229,160,.3)':n.impact==='negative'?'rgba(255,92,115,.3)':'rgba(255,255,255,.08)';
+    document.getElementById('news-asset-tag').textContent = asset;
+    data.articles.forEach(function(a) {
+      if (a.title === '[Removed]') return;
       var d = document.createElement('div');
-      d.className='ncard'; d.style.borderColor=bc;
-      d.innerHTML='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px">'+
-        '<div style="font-size:13px;font-weight:700;color:#ddd;line-height:1.4;flex:1">'+escHtml(n.title)+'</div>'+
-        '<span class="ntag '+ic+'">'+il+'</span></div>'+
-        '<div style="font-size:12px;color:#666;line-height:1.7;margin-bottom:10px">'+escHtml(n.summary)+'</div>'+
-        '<div style="display:flex;justify-content:space-between">'+
-        '<span style="font-size:10px;color:#333">'+escHtml(n.source||'')+'</span>'+
-        '<span style="font-size:10px;color:#333">'+escHtml(n.date||'')+'</span></div>';
+      d.className = 'ncard';
+      d.style.cursor = 'pointer';
+      d.onclick = function(){ if(a.url) window.open(a.url,'_blank'); };
+      var pub = '';
+      try { pub = new Date(a.publishedAt).toLocaleString('fr-FR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); } catch(e){}
+      var img = a.urlToImage ? '<img src="'+escHtml(a.urlToImage)+'" style="width:100%;height:120px;object-fit:cover;border-radius:9px;margin-bottom:10px;display:block"/>' : '';
+      d.innerHTML =
+        img +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:7px">' +
+          '<div style="font-size:13px;font-weight:700;color:#ddd;line-height:1.45;flex:1">' + escHtml(a.title) + '</div>' +
+        '</div>' +
+        (a.description ? '<div style="font-size:12px;color:#666;line-height:1.65;margin-bottom:10px">' + escHtml(a.description) + '</div>' : '') +
+        '<div style="display:flex;align-items:center;justify-content:space-between">' +
+          '<span style="font-size:10px;color:#444;font-weight:600">' + escHtml(a.source && a.source.name ? a.source.name : '') + '</span>' +
+          '<span style="font-size:10px;color:#333">' + pub + '</span>' +
+        '</div>';
       feed.appendChild(d);
     });
-  }).catch(function(err){btn.innerHTML='Actualiser';btn.disabled=false;feed.innerHTML='<div style="text-align:center;color:#ff5c73;padding:40px">Erreur: '+err.message+'</div>';});
+  }).catch(function(err){
+    btn.innerHTML = '⟳ Actualiser'; btn.disabled = false;
+    feed.innerHTML = '<div style="text-align:center;color:#ff5c73;padding:40px;font-size:13px">Erreur: ' + escHtml(err.message) + '</div>';
+  });
 }
 
-// ── CALENDAR ──────────────────────────────────────────
+// ── CALENDAR (FinnHub) ────────────────────────────────
 var calEvents = [];
 var calCurrentFilter = 'all';
 
 function calNav(dir) {
   var d = document.getElementById('cal-date');
-  if (!d.value) { d.value = new Date().toISOString().split('T')[0]; }
-  var dt = new Date(d.value);
+  if (!d.value) d.value = new Date().toISOString().split('T')[0];
+  var dt = new Date(d.value + 'T12:00:00');
   dt.setDate(dt.getDate() + dir);
   d.value = dt.toISOString().split('T')[0];
 }
 
 function calFilter(f) {
   calCurrentFilter = f;
-  ['all','high','med'].forEach(function(k) {
+  ['all','high','med'].forEach(function(k){
     var b = document.getElementById('cf-'+k);
-    var isActive = k === f;
-    b.style.background    = isActive ? 'rgba(85,102,255,.12)' : 'transparent';
-    b.style.borderColor   = isActive ? 'rgba(85,102,255,.4)'  : 'rgba(255,255,255,.08)';
-    b.style.color         = isActive ? '#8899ff' : '#555';
-    b.style.fontWeight    = isActive ? '700' : '400';
+    var on = k === f;
+    b.style.background  = on ? 'rgba(85,102,255,.12)' : 'transparent';
+    b.style.borderColor = on ? 'rgba(85,102,255,.4)'  : 'rgba(255,255,255,.08)';
+    b.style.color       = on ? '#8899ff' : '#555';
+    b.style.fontWeight  = on ? '700' : '400';
   });
   renderCalEvents();
 }
 
 function renderCalEvents() {
   var feed = document.getElementById('cal-feed');
-  var filtered = calEvents.filter(function(ev) {
+  var filtered = calEvents.filter(function(ev){
     if (calCurrentFilter === 'all')  return true;
-    if (calCurrentFilter === 'high') return ev.impact === 'high';
-    if (calCurrentFilter === 'med')  return ev.impact === 'medium' || ev.impact === 'med';
+    if (calCurrentFilter === 'high') return ev._impact === 'high';
+    if (calCurrentFilter === 'med')  return ev._impact === 'medium';
     return true;
   });
-  // Sort by time
   filtered.sort(function(a,b){ return (a.time||'').localeCompare(b.time||''); });
-
   document.getElementById('cal-status').textContent = filtered.length + ' evenement' + (filtered.length>1?'s':'');
-
   if (!filtered.length) {
     feed.innerHTML = '<div style="text-align:center;color:#444;padding:40px;font-size:13px">Aucun evenement pour ce filtre.</div>';
     return;
   }
-
   feed.innerHTML = '';
-  filtered.forEach(function(ev) {
-    var ic  = ev.impact === 'high' ? '#ff5c73' : ev.impact === 'medium' || ev.impact === 'med' ? '#ffc14d' : '#3a3a5a';
-    var rc  = ev.result === 'beat' ? '#00e5a0' : ev.result === 'miss' ? '#ff5c73' : ev.result === 'inline' ? '#8899ff' : '#555';
-    var rl  = ev.result === 'beat' ? 'Meilleur' : ev.result === 'miss' ? 'Decevant' : ev.result === 'inline' ? 'Conforme' : 'Attente';
-    var impDot = ev.impact === 'high' ? '#ff5c73' : ev.impact === 'medium' || ev.impact === 'med' ? '#ffc14d' : '#3a3a5a';
-
+  filtered.forEach(function(ev){
+    var ic = ev._impact==='high'?'#ff5c73':ev._impact==='medium'?'#ffc14d':'#3a3a5a';
+    // result
+    var rc='#555', rl='';
+    if (ev.actual !== null && ev.actual !== undefined && ev.actual !== '') {
+      var act = parseFloat(ev.actual), est = parseFloat(ev.estimate);
+      if (!isNaN(act) && !isNaN(est)) {
+        if (act > est) { rc='#00e5a0'; rl='Meilleur'; }
+        else if (act < est) { rc='#ff5c73'; rl='Decevant'; }
+        else { rc='#8899ff'; rl='Conforme'; }
+      }
+    }
     var d = document.createElement('div');
-    d.className = 'cevent ' + (ev.impact === 'high' ? 'high' : ev.impact === 'medium' || ev.impact === 'med' ? 'med' : 'low');
+    d.className = 'cevent ' + (ev._impact==='high'?'high':ev._impact==='medium'?'med':'low');
+    // Format time from ISO
+    var timeStr = '--:--';
+    try { timeStr = ev.time ? ev.time.substring(11,16) : '--:--'; } catch(e){}
     d.innerHTML =
       '<div style="display:flex;align-items:flex-start;gap:12px">' +
-        // Time column
-        '<div style="flex-shrink:0;text-align:center;padding-top:2px">' +
-          '<div style="font-size:12px;font-weight:700;color:#666;font-family:monospace">' + (ev.time || '--:--') + '</div>' +
-          '<div style="width:8px;height:8px;border-radius:50%;background:' + impDot + ';margin:4px auto 0"></div>' +
+        '<div style="flex-shrink:0;text-align:center;padding-top:2px;min-width:36px">' +
+          '<div style="font-size:11px;font-weight:700;color:#666;font-family:monospace">' + timeStr + '</div>' +
+          '<div style="width:8px;height:8px;border-radius:50%;background:'+ic+';margin:4px auto 0"></div>' +
         '</div>' +
-        // Main content
         '<div style="flex:1;min-width:0">' +
-          '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:7px">' +
+          '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px">' +
             '<div>' +
-              '<span style="font-size:14px;font-weight:700;color:#ddd">' + escHtml(ev.name || '') + '</span>' +
-              (ev.country ? '<span style="font-size:12px;margin-left:7px">' + escHtml(ev.country) + '</span>' : '') +
+              '<span style="font-size:13px;font-weight:700;color:#ddd">' + escHtml(ev.event||'') + '</span>' +
+              (ev.country ? '<span style="font-size:11px;color:#666;margin-left:8px">' + escHtml(ev.country) + '</span>' : '') +
             '</div>' +
-            (ev.result && ev.result !== 'pending' ?
-              '<span style="font-size:10px;font-weight:700;color:' + rc + ';background:' + rc + '1a;border-radius:99px;padding:2px 9px;flex-shrink:0">' + rl + '</span>'
-              : '') +
+            (rl ? '<span style="font-size:10px;font-weight:700;color:'+rc+';background:'+rc+'1a;border-radius:99px;padding:2px 9px;flex-shrink:0">'+rl+'</span>' : '') +
           '</div>' +
-          // Data row
-          '<div style="display:flex;gap:20px;margin-bottom:7px;flex-wrap:wrap">' +
-            (ev.actual   ? '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">REEL</div><div style="font-size:13px;font-weight:800;color:#e0e0e0">'  + escHtml(ev.actual)   + '</div></div>' : '') +
-            (ev.forecast ? '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">PREVU</div><div style="font-size:13px;color:#888">'                    + escHtml(ev.forecast) + '</div></div>' : '') +
-            (ev.previous ? '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">PREC.</div><div style="font-size:13px;color:#555">'                    + escHtml(ev.previous) + '</div></div>' : '') +
+          '<div style="display:flex;gap:20px;margin-bottom:6px;flex-wrap:wrap">' +
+            (ev.actual!==null && ev.actual!==undefined && ev.actual!=='' ?
+              '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">REEL</div><div style="font-size:13px;font-weight:800;color:#e0e0e0">'+escHtml(String(ev.actual))+'</div></div>' : '') +
+            (ev.estimate!==null && ev.estimate!==undefined && ev.estimate!=='' ?
+              '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">PREVU</div><div style="font-size:13px;color:#888">'+escHtml(String(ev.estimate))+'</div></div>' : '') +
+            (ev.prev!==null && ev.prev!==undefined && ev.prev!=='' ?
+              '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">PREC.</div><div style="font-size:13px;color:#555">'+escHtml(String(ev.prev))+'</div></div>' : '') +
           '</div>' +
-          // Analysis
-          (ev.analysis ?
-            '<div style="font-size:12px;color:#555;line-height:1.6;padding:8px 10px;background:rgba(255,255,255,.02);border-radius:8px">' +
-              '<span style="color:#3a3a4a;font-size:10px;font-weight:700;letter-spacing:1px;margin-right:6px">IMPACT</span>' +
-              escHtml(ev.analysis) +
-            '</div>'
-            : '') +
+          '<div style="font-size:10px;color:'+ic+';font-weight:700;background:'+ic+'18;border-radius:99px;padding:1px 8px;display:inline-block">' +
+            (ev._impact==='high'?'&#9889; Impact majeur':ev._impact==='medium'?'&#9702; Impact modere':'&#9675; Faible impact') +
+          '</div>' +
         '</div>' +
       '</div>';
     feed.appendChild(d);
   });
+}
+
+function impactLevel(unit) {
+  // FinnHub impact: 1=low, 2=medium, 3=high
+  if (!unit) return 'low';
+  var v = parseInt(unit);
+  if (v >= 3) return 'high';
+  if (v === 2) return 'medium';
+  return 'low';
 }
 
 function loadCal() {
@@ -1059,39 +1102,311 @@ function loadCal() {
   var dateVal = d.value;
   var feed = document.getElementById('cal-feed');
   document.getElementById('cal-empty').style.display = 'none';
-  feed.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:120px;gap:10px;color:#444"><span class="sp"></span><span style="font-size:13px">Analyse du ' + fmtDate(dateVal) + '...</span></div>';
   document.getElementById('cal-status').textContent = '';
+  feed.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:120px;gap:10px;color:#444"><span class="sp"></span><span style="font-size:13px">Chargement du ' + fmtDate(dateVal) + '...</span></div>';
 
-  var sysP = 'Tu es un economiste expert. Pour la date demandee, genere exactement 8 evenements economiques importants. Reponds UNIQUEMENT en JSON valide sans markdown. Format: {"date":"...","summary":"resume factuel de la journee macro en 2 phrases","events":[{"time":"HH:MM","name":"nom evenement","country":"emoji drapeau + pays","actual":"valeur reelle","forecast":"valeur prevue","previous":"valeur precedente","impact":"high|medium|low","result":"beat|miss|inline|pending","analysis":"consequence sur marche financier"}]}. Impact high = rouge = tres important (NFP, CPI, Fed, BCE). Medium = modere. Low = faible. Result beat si actual > forecast (positif), miss si actual < forecast.';
-  var usrP = 'Calendrier economique pour le ' + fmtDate(dateVal) + ' (' + dateVal + '). Inclus USA, Europe, UK et Asie. Evenements cles: banques centrales, inflation, emploi, PIB, PMI, ventes.';
+  var url = 'https://finnhub.io/api/v1/calendar/economic?from=' + dateVal + '&to=' + dateVal + '&token=' + FINN_KEY;
 
-  fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + KEY},
-    body: JSON.stringify({
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      max_tokens: 1600, temperature: 0.2,
-      messages: [{role: 'system', content: sysP},{role: 'user', content: usrP}]
-    })
-  }).then(function(r){return r.json();}).then(function(data){
-    var raw = (data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
-    raw = raw.replace(/```[a-z]*\n?|```/g,'').trim();
-    var p = null; try{p=JSON.parse(raw);}catch(e){}
-    if (!p||!p.events||!p.events.length) {
-      feed.innerHTML = '<div style="text-align:center;color:#444;padding:40px;font-size:13px">Aucune donnee disponible.</div>';
+  fetch(url).then(function(r){return r.json();}).then(function(data){
+    var events = data.economicCalendar || data.economic_calendar || data || [];
+    if (!Array.isArray(events)) events = [];
+
+    feed.innerHTML = '';
+    if (!events.length) {
+      feed.innerHTML = '<div style="text-align:center;color:#444;padding:40px;font-size:13px">Aucun evenement trouve pour le ' + escHtml(fmtDate(dateVal)) + '.<br><span style="font-size:11px;color:#333">Marche ferme ou pas de donnees disponibles.</span></div>';
       return;
     }
-    calEvents = p.events;
-    feed.innerHTML = '';
+
+    // Add impact level to each event
+    calEvents = events.map(function(ev){
+      ev._impact = impactLevel(ev.impact);
+      return ev;
+    });
+
     // Summary banner
-    if (p.summary) {
-      var bn = document.createElement('div');
-      bn.style.cssText = 'background:rgba(85,102,255,.07);border:1px solid rgba(85,102,255,.18);border-radius:12px;padding:14px 16px;margin-bottom:18px';
-      bn.innerHTML =
-        '<div style="font-size:9px;color:#5566ff;letter-spacing:3px;font-weight:700;margin-bottom:6px">RESUME DU ' + fmtDate(dateVal).toUpperCase() + '</div>' +
-        '<div style="font-size:13px;color:#aab;line-height:1.7">' + escHtml(p.summary) + '</div>';
-      feed.appendChild(bn);
+    var high = calEvents.filter(function(e){return e._impact==='high';}).length;
+    var med  = calEvents.filter(function(e){return e._impact==='medium';}).length;
+    var bn = document.createElement('div');
+    bn.style.cssText = 'background:rgba(85,102,255,.07);border:1px solid rgba(85,102,255,.18);border-radius:12px;padding:14px 16px;margin-bottom:16px';
+    bn.innerHTML =
+      '<div style="font-size:9px;color:#5566ff;letter-spacing:3px;font-weight:700;margin-bottom:8px">RESUME — ' + fmtDate(dateVal).toUpperCase() + '</div>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
+        '<div style="font-size:12px;color:#aab">' + calEvents.length + ' evenements au total</div>' +
+        (high ? '<div style="font-size:12px;color:#ff5c73;font-weight:700">&#9889; ' + high + ' impact majeur</div>' : '') +
+        (med  ? '<div style="font-size:12px;color:#ffc14d">&#9702; ' + med  + ' impact modere</div>' : '') +
+      '</div>';
+    feed.appendChild(bn);
+
+    renderCalEvents();
+  }).catch(function(err){
+    feed.innerHTML = '<div style="text-align:center;color:#ff5c73;padding:40px;font-size:13px">Erreur: ' + escHtml(err.message) + '</div>';
+  });
+}
+
+// ── ENHANCE ANALYZE with real news ───────────────────
+function appendNewsToCard(card, asset) {
+  var q = asset.replace('/', ' ').replace('USD','').replace('EUR','').trim();
+  if (asset === 'XAU/USD') q = 'gold';
+  if (asset === 'SPX500' || asset === 'NDX100') q = 'stock market';
+  var url = 'https://newsapi.org/v2/everything?q=' + encodeURIComponent(q) +
+    '&sortBy=publishedAt&pageSize=3&apiKey=' + NEWS_KEY;
+  fetch(url).then(function(r){return r.json();}).then(function(data){
+    if (!data.articles || !data.articles.length) return;
+    var sec = document.createElement('div');
+    sec.style.cssText = 'margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)';
+    sec.innerHTML = '<div style="font-size:10px;color:#3a3a4a;letter-spacing:2px;font-weight:700;margin-bottom:8px">ACTUALITES RECENTES</div>';
+    data.articles.forEach(function(a){
+      if (a.title === '[Removed]') return;
+      var pub = '';
+      try { pub = new Date(a.publishedAt).toLocaleString('fr-FR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); } catch(e){}
+      var dot = document.createElement('div');
+      dot.style.cssText = 'display:flex;align-items:flex-start;gap:7px;margin-bottom:8px;cursor:pointer';
+      dot.onclick = function(){ if(a.url) window.open(a.url,'_blank'); };
+      dot.innerHTML =
+        '<span style="color:#5566ff;flex-shrink:0;margin-top:3px">&#9679;</span>' +
+        '<div>' +
+          '<div style="font-size:12px;color:#888;line-height:1.5">' + escHtml(a.title) + '</div>' +
+          '<div style="font-size:10px;color:#333;margin-top:2px">' + escHtml(a.source&&a.source.name?a.source.name:'') + ' · ' + pub + '</div>' +
+        '</div>';
+      sec.appendChild(dot);
+    });
+    card.appendChild(sec);
+  }).catch(function(){});
+}
+
+function openSheet()  { document.getElementById('sheet').classList.add('on'); document.getElementById('sheet-ov').classList.add('on'); }
+function closeSheet() { document.getElementById('sheet').classList.remove('on'); document.getElementById('sheet-ov').classList.remove('on'); }
+
+// ── TABS ──────────────────────────────────────────────
+function setTab(tab) {
+  var tabs = ['analyse','news','cal'];
+  tabs.forEach(function(t) {
+    var btn = document.getElementById('tab-'+t);
+    if (!btn) return;
+    var isActive = t === tab;
+    btn.style.background  = isActive ? 'rgba(85,102,255,.15)' : 'transparent';
+    btn.style.borderColor = isActive ? 'rgba(85,102,255,.4)'  : 'rgba(255,255,255,.08)';
+    btn.style.color       = isActive ? '#8899ff' : '#555';
+    btn.style.fontWeight  = isActive ? '700' : '600';
+  });
+  var inner = document.getElementById('app-inner');
+  var news  = document.getElementById('news-panel');
+  var cal   = document.getElementById('cal-panel');
+  if (!inner || !news || !cal) return;
+  inner.style.display = tab==='analyse' ? 'flex'  : 'none';
+  news.style.display  = tab==='news'    ? 'flex'  : 'none';
+  cal.style.display   = tab==='cal'     ? 'flex'  : 'none';
+  if (tab==='news') {
+    document.getElementById('news-asset-tag').textContent  = A.asset;
+    document.getElementById('news-empty-asset').textContent = A.asset;
+  }
+  if (tab==='cal' && !document.getElementById('cal-date').value) {
+    var today = new Date().toISOString().split('T')[0];
+    document.getElementById('cal-date').value = today;
+  }
+}
+
+// ── NEWS (NewsAPI) ────────────────────────────────────
+function loadNews() {
+  var feed = document.getElementById('news-feed');
+  var asset = A.asset;
+  document.getElementById('news-empty').style.display = 'none';
+  feed.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:80px;gap:10px;color:#444"><span class="sp"></span><span style="font-size:13px">Chargement des actualites...</span></div>';
+  var btn = document.getElementById('news-refresh');
+  btn.innerHTML = '<span class="sp"></span>';
+  btn.disabled = true;
+
+  // Build search query from asset name
+  var q = asset.replace('/', ' ').replace('USD','').replace('EUR','').trim();
+  if (asset === 'SPX500' || asset === 'NDX100') q = 'S&P 500 nasdaq';
+  if (asset === 'XAU/USD') q = 'gold price';
+  if (asset === 'WTI') q = 'oil price crude';
+
+  var url = 'https://newsapi.org/v2/everything?q=' + encodeURIComponent(q) +
+    '&language=fr&sortBy=publishedAt&pageSize=10&apiKey=' + NEWS_KEY;
+
+  // Try French first, fallback to English
+  fetch(url).then(function(r){return r.json();}).then(function(data){
+    if (!data.articles || !data.articles.length) {
+      // fallback English
+      var url2 = 'https://newsapi.org/v2/everything?q=' + encodeURIComponent(q) +
+        '&language=en&sortBy=publishedAt&pageSize=10&apiKey=' + NEWS_KEY;
+      return fetch(url2).then(function(r2){return r2.json();});
     }
+    return data;
+  }).then(function(data){
+    btn.innerHTML = '⟳ Actualiser'; btn.disabled = false;
+    if (!data.articles || !data.articles.length) {
+      feed.innerHTML = '<div style="text-align:center;color:#444;padding:40px;font-size:13px">Aucune actualite trouvee pour ' + escHtml(asset) + '.</div>';
+      return;
+    }
+    feed.innerHTML = '';
+    document.getElementById('news-asset-tag').textContent = asset;
+    data.articles.forEach(function(a) {
+      if (a.title === '[Removed]') return;
+      var d = document.createElement('div');
+      d.className = 'ncard';
+      d.style.cursor = 'pointer';
+      d.onclick = function(){ if(a.url) window.open(a.url,'_blank'); };
+      var pub = '';
+      try { pub = new Date(a.publishedAt).toLocaleString('fr-FR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); } catch(e){}
+      var img = a.urlToImage ? '<img src="'+escHtml(a.urlToImage)+'" style="width:100%;height:120px;object-fit:cover;border-radius:9px;margin-bottom:10px;display:block"/>' : '';
+      d.innerHTML =
+        img +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:7px">' +
+          '<div style="font-size:13px;font-weight:700;color:#ddd;line-height:1.45;flex:1">' + escHtml(a.title) + '</div>' +
+        '</div>' +
+        (a.description ? '<div style="font-size:12px;color:#666;line-height:1.65;margin-bottom:10px">' + escHtml(a.description) + '</div>' : '') +
+        '<div style="display:flex;align-items:center;justify-content:space-between">' +
+          '<span style="font-size:10px;color:#444;font-weight:600">' + escHtml(a.source && a.source.name ? a.source.name : '') + '</span>' +
+          '<span style="font-size:10px;color:#333">' + pub + '</span>' +
+        '</div>';
+      feed.appendChild(d);
+    });
+  }).catch(function(err){
+    btn.innerHTML = '⟳ Actualiser'; btn.disabled = false;
+    feed.innerHTML = '<div style="text-align:center;color:#ff5c73;padding:40px;font-size:13px">Erreur: ' + escHtml(err.message) + '</div>';
+  });
+}
+
+// ── CALENDAR (FinnHub) ────────────────────────────────
+var calEvents = [];
+var calCurrentFilter = 'all';
+
+function calNav(dir) {
+  var d = document.getElementById('cal-date');
+  if (!d.value) d.value = new Date().toISOString().split('T')[0];
+  var dt = new Date(d.value + 'T12:00:00');
+  dt.setDate(dt.getDate() + dir);
+  d.value = dt.toISOString().split('T')[0];
+}
+
+function calFilter(f) {
+  calCurrentFilter = f;
+  ['all','high','med'].forEach(function(k){
+    var b = document.getElementById('cf-'+k);
+    var on = k === f;
+    b.style.background  = on ? 'rgba(85,102,255,.12)' : 'transparent';
+    b.style.borderColor = on ? 'rgba(85,102,255,.4)'  : 'rgba(255,255,255,.08)';
+    b.style.color       = on ? '#8899ff' : '#555';
+    b.style.fontWeight  = on ? '700' : '400';
+  });
+  renderCalEvents();
+}
+
+function renderCalEvents() {
+  var feed = document.getElementById('cal-feed');
+  var filtered = calEvents.filter(function(ev){
+    if (calCurrentFilter === 'all')  return true;
+    if (calCurrentFilter === 'high') return ev._impact === 'high';
+    if (calCurrentFilter === 'med')  return ev._impact === 'medium';
+    return true;
+  });
+  filtered.sort(function(a,b){ return (a.time||'').localeCompare(b.time||''); });
+  document.getElementById('cal-status').textContent = filtered.length + ' evenement' + (filtered.length>1?'s':'');
+  if (!filtered.length) {
+    feed.innerHTML = '<div style="text-align:center;color:#444;padding:40px;font-size:13px">Aucun evenement pour ce filtre.</div>';
+    return;
+  }
+  feed.innerHTML = '';
+  filtered.forEach(function(ev){
+    var ic = ev._impact==='high'?'#ff5c73':ev._impact==='medium'?'#ffc14d':'#3a3a5a';
+    // result
+    var rc='#555', rl='';
+    if (ev.actual !== null && ev.actual !== undefined && ev.actual !== '') {
+      var act = parseFloat(ev.actual), est = parseFloat(ev.estimate);
+      if (!isNaN(act) && !isNaN(est)) {
+        if (act > est) { rc='#00e5a0'; rl='Meilleur'; }
+        else if (act < est) { rc='#ff5c73'; rl='Decevant'; }
+        else { rc='#8899ff'; rl='Conforme'; }
+      }
+    }
+    var d = document.createElement('div');
+    d.className = 'cevent ' + (ev._impact==='high'?'high':ev._impact==='medium'?'med':'low');
+    // Format time from ISO
+    var timeStr = '--:--';
+    try { timeStr = ev.time ? ev.time.substring(11,16) : '--:--'; } catch(e){}
+    d.innerHTML =
+      '<div style="display:flex;align-items:flex-start;gap:12px">' +
+        '<div style="flex-shrink:0;text-align:center;padding-top:2px;min-width:36px">' +
+          '<div style="font-size:11px;font-weight:700;color:#666;font-family:monospace">' + timeStr + '</div>' +
+          '<div style="width:8px;height:8px;border-radius:50%;background:'+ic+';margin:4px auto 0"></div>' +
+        '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px">' +
+            '<div>' +
+              '<span style="font-size:13px;font-weight:700;color:#ddd">' + escHtml(ev.event||'') + '</span>' +
+              (ev.country ? '<span style="font-size:11px;color:#666;margin-left:8px">' + escHtml(ev.country) + '</span>' : '') +
+            '</div>' +
+            (rl ? '<span style="font-size:10px;font-weight:700;color:'+rc+';background:'+rc+'1a;border-radius:99px;padding:2px 9px;flex-shrink:0">'+rl+'</span>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:20px;margin-bottom:6px;flex-wrap:wrap">' +
+            (ev.actual!==null && ev.actual!==undefined && ev.actual!=='' ?
+              '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">REEL</div><div style="font-size:13px;font-weight:800;color:#e0e0e0">'+escHtml(String(ev.actual))+'</div></div>' : '') +
+            (ev.estimate!==null && ev.estimate!==undefined && ev.estimate!=='' ?
+              '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">PREVU</div><div style="font-size:13px;color:#888">'+escHtml(String(ev.estimate))+'</div></div>' : '') +
+            (ev.prev!==null && ev.prev!==undefined && ev.prev!=='' ?
+              '<div><div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:2px">PREC.</div><div style="font-size:13px;color:#555">'+escHtml(String(ev.prev))+'</div></div>' : '') +
+          '</div>' +
+          '<div style="font-size:10px;color:'+ic+';font-weight:700;background:'+ic+'18;border-radius:99px;padding:1px 8px;display:inline-block">' +
+            (ev._impact==='high'?'&#9889; Impact majeur':ev._impact==='medium'?'&#9702; Impact modere':'&#9675; Faible impact') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    feed.appendChild(d);
+  });
+}
+
+function impactLevel(unit) {
+  // FinnHub impact: 1=low, 2=medium, 3=high
+  if (!unit) return 'low';
+  var v = parseInt(unit);
+  if (v >= 3) return 'high';
+  if (v === 2) return 'medium';
+  return 'low';
+}
+
+function loadCal() {
+  var d = document.getElementById('cal-date');
+  if (!d.value) d.value = new Date().toISOString().split('T')[0];
+  var dateVal = d.value;
+  var feed = document.getElementById('cal-feed');
+  document.getElementById('cal-empty').style.display = 'none';
+  document.getElementById('cal-status').textContent = '';
+  feed.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:120px;gap:10px;color:#444"><span class="sp"></span><span style="font-size:13px">Chargement du ' + fmtDate(dateVal) + '...</span></div>';
+
+  var url = 'https://finnhub.io/api/v1/calendar/economic?from=' + dateVal + '&to=' + dateVal + '&token=' + FINN_KEY;
+
+  fetch(url).then(function(r){return r.json();}).then(function(data){
+    var events = data.economicCalendar || data.economic_calendar || data || [];
+    if (!Array.isArray(events)) events = [];
+
+    feed.innerHTML = '';
+    if (!events.length) {
+      feed.innerHTML = '<div style="text-align:center;color:#444;padding:40px;font-size:13px">Aucun evenement trouve pour le ' + escHtml(fmtDate(dateVal)) + '.<br><span style="font-size:11px;color:#333">Marche ferme ou pas de donnees disponibles.</span></div>';
+      return;
+    }
+
+    // Add impact level to each event
+    calEvents = events.map(function(ev){
+      ev._impact = impactLevel(ev.impact);
+      return ev;
+    });
+
+    // Summary banner
+    var high = calEvents.filter(function(e){return e._impact==='high';}).length;
+    var med  = calEvents.filter(function(e){return e._impact==='medium';}).length;
+    var bn = document.createElement('div');
+    bn.style.cssText = 'background:rgba(85,102,255,.07);border:1px solid rgba(85,102,255,.18);border-radius:12px;padding:14px 16px;margin-bottom:16px';
+    bn.innerHTML =
+      '<div style="font-size:9px;color:#5566ff;letter-spacing:3px;font-weight:700;margin-bottom:8px">RESUME — ' + fmtDate(dateVal).toUpperCase() + '</div>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
+        '<div style="font-size:12px;color:#aab">' + calEvents.length + ' evenements au total</div>' +
+        (high ? '<div style="font-size:12px;color:#ff5c73;font-weight:700">&#9889; ' + high + ' impact majeur</div>' : '') +
+        (med  ? '<div style="font-size:12px;color:#ffc14d">&#9702; ' + med  + ' impact modere</div>' : '') +
+      '</div>';
+    feed.appendChild(bn);
+
     renderCalEvents();
   }).catch(function(err){
     feed.innerHTML = '<div style="text-align:center;color:#ff5c73;padding:40px;font-size:13px">Erreur: ' + escHtml(err.message) + '</div>';
