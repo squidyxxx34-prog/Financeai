@@ -849,6 +849,8 @@ function go() {
     })
   }).then(function(r){return r.json();}).then(function(data) {
     var raw = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+    if (!raw && data.error) { raw = 'Erreur API: ' + (data.error.message || JSON.stringify(data.error)); }
+    if (!raw) { raw = 'Reponse vide. Verifiez la cle Groq et la connexion.'; }
     var sig = null, analysis = raw;
     if (raw.indexOf('[BUY]')===0)       { sig='BUY';  analysis=raw.replace('[BUY]','').trim(); }
     else if (raw.indexOf('[SELL]')===0) { sig='SELL'; analysis=raw.replace('[SELL]','').trim(); }
@@ -883,7 +885,7 @@ function mkResult(card, sig, analysis) {
   }
   var cb = card.querySelector('.cb');
   cb.style.cssText = 'font-size:12px;color:#777;line-height:1.85;white-space:pre-wrap;letter-spacing:.2px';
-  tw(cb, analysis);
+  tw(cb, analysis || 'Aucune analyse disponible.');
   setTimeout(function(){document.getElementById('feed').scrollTop=99999;},80);
   // append news after a short delay
   setTimeout(function(){ appendNewsToCard(card, A.asset || 'marché'); }, 1500);
@@ -965,12 +967,11 @@ function loadNews() {
     '&language=fr&sortBy=publishedAt&pageSize=10&apiKey=' + NEWS_KEY;
 
   // Try French first, fallback to English
-  fetch(url).then(function(r){return r.json();}).then(function(data){
+  fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url)).then(function(r){return r.text().then(function(t){try{return JSON.parse(t);}catch(e){return {};}});}).then(function(data){
     if (!data.articles || !data.articles.length) {
-      // fallback English
       var url2 = 'https://newsapi.org/v2/everything?q=' + encodeURIComponent(q) +
         '&language=en&sortBy=publishedAt&pageSize=10&apiKey=' + NEWS_KEY;
-      return fetch(url2).then(function(r2){return r2.json();});
+      return fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url2)).then(function(r2){return r2.text().then(function(t){try{return JSON.parse(t);}catch(e){return {};}});});
     }
     return data;
   }).then(function(data){
@@ -1116,7 +1117,7 @@ function loadCal() {
 
   var url = 'https://finnhub.io/api/v1/calendar/economic?from=' + dateVal + '&to=' + dateVal + '&token=' + FINN_KEY;
 
-  fetch(url).then(function(r){return r.json();}).then(function(data){
+  fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url)).then(function(r){return r.text().then(function(t){try{return JSON.parse(t);}catch(e){return {};}});}).then(function(data){
     var events = data.economicCalendar || data.economic_calendar || data || [];
     if (!Array.isArray(events)) events = [];
 
@@ -1159,7 +1160,7 @@ function appendNewsToCard(card, asset) {
   if (asset === 'SPX500' || asset === 'NDX100') q = 'stock market';
   var url = 'https://newsapi.org/v2/everything?q=' + encodeURIComponent(q) +
     '&sortBy=publishedAt&pageSize=3&apiKey=' + NEWS_KEY;
-  fetch(url).then(function(r){return r.json();}).then(function(data){
+  fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url)).then(function(r){return r.text().then(function(t){try{return JSON.parse(t);}catch(e){return {};}});}).then(function(data){
     if (!data.articles || !data.articles.length) return;
     var sec = document.createElement('div');
     sec.style.cssText = 'margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)';
@@ -1235,12 +1236,11 @@ function loadNews() {
     '&language=fr&sortBy=publishedAt&pageSize=10&apiKey=' + NEWS_KEY;
 
   // Try French first, fallback to English
-  fetch(url).then(function(r){return r.json();}).then(function(data){
+  fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url)).then(function(r){return r.text().then(function(t){try{return JSON.parse(t);}catch(e){return {};}});}).then(function(data){
     if (!data.articles || !data.articles.length) {
-      // fallback English
       var url2 = 'https://newsapi.org/v2/everything?q=' + encodeURIComponent(q) +
         '&language=en&sortBy=publishedAt&pageSize=10&apiKey=' + NEWS_KEY;
-      return fetch(url2).then(function(r2){return r2.json();});
+      return fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url2)).then(function(r2){return r2.text().then(function(t){try{return JSON.parse(t);}catch(e){return {};}});});
     }
     return data;
   }).then(function(data){
@@ -1386,7 +1386,7 @@ function loadCal() {
 
   var url = 'https://finnhub.io/api/v1/calendar/economic?from=' + dateVal + '&to=' + dateVal + '&token=' + FINN_KEY;
 
-  fetch(url).then(function(r){return r.json();}).then(function(data){
+  fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url)).then(function(r){return r.text().then(function(t){try{return JSON.parse(t);}catch(e){return {};}});}).then(function(data){
     var events = data.economicCalendar || data.economic_calendar || data || [];
     if (!Array.isArray(events)) events = [];
 
